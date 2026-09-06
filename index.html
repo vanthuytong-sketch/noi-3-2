@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>汉语口语练习系统 - 第三课 (Manual Mic per Question)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Thư viện Pinyin Pro để phân tích thanh mẫu, vận mẫu, thanh điệu -->
+    <script src="https://unpkg.com/pinyin-pro"></script>
+    <style>
+        body { font-family: 'Microsoft YaHei', 'SimHei', sans-serif; background-color: #f3f4f6; }
+        .flip-card { background-color: transparent; height: 320px; perspective: 1000px; cursor: pointer; }
+        .flip-card-inner { position: relative; width: 100%; height: 100%; text-align: center; transition: transform 0.6s; transform-style: preserve-3d; }
+        .flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #e5e7eb; padding: 1.5rem;}
+        .flip-card-front { background-color: #ffffff; }
+        .flip-card-back { background-color: #eff6ff; transform: rotateY(180deg); justify-content: flex-start; overflow-y: auto; padding: 1.5rem; text-align: left; align-items: flex-start;}
+        
+        .flip-card-back::-webkit-scrollbar { width: 4px; }
+        .flip-card-back::-webkit-scrollbar-thumb { background: #bfdbfe; border-radius: 4px; }
+
+        .zh-text { font-family: 'Microsoft YaHei', 'SimHei', sans-serif; font-size: 1.15rem; line-height: 2; color: #1f2937; }
+        .speaker { font-weight: bold; color: #2563eb; margin-top: 1rem; }
+        
+        /* Layout */
+        .app-container { display: flex; height: 100vh; overflow: hidden; max-width: 1200px; margin: 0 auto; background: white; box-shadow: 0 0 20px rgba(0,0,0,0.05); }
+        .sidebar { width: 280px; background-color: #1e293b; color: white; display: flex; flex-direction: column; overflow-y: auto;}
+        .main-content { flex: 1; overflow-y: auto; padding: 2rem; background-color: #f8fafc; position: relative; scroll-behavior: smooth;}
+        
+        .nav-item { padding: 1rem 1.5rem; cursor: pointer; border-left: 4px solid transparent; transition: all 0.2s; display: flex; align-items: center; gap: 0.75rem;}
+        .nav-item:hover { background-color: #334155; }
+        .nav-item.active { background-color: #2563eb; border-left-color: #60a5fa; font-weight: bold;}
+        
+        .section-header { font-size: 1.5rem; font-weight: bold; color: #1e293b; margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; }
+        
+        /* Microphone Animation */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .mic-active-icon { animation: pulse-ring 2s infinite; border-radius: 50%; }
+
+        @media (max-width: 768px) {
+            .app-container { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; flex-direction: row; overflow-x: auto; white-space: nowrap; padding: 0.5rem; }
+            .nav-item { padding: 0.75rem 1rem; border-left: none; border-bottom: 3px solid transparent; flex-shrink: 0;}
+            .nav-item.active { border-bottom-color: #60a5fa; border-left: none; }
+            .main-content { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="sidebar">
+        <div class="p-6 bg-gray-900 border-b border-gray-700">
+            <h1 class="text-xl font-bold text-white"><i class="fas fa-graduation-cap text-blue-400 mr-2"></i>口语三</h1>
+            <p class="text-gray-400 text-sm mt-1">自动口语练习系统</p>
+        </div>
+        
+        <div class="text-xs uppercase text-gray-500 font-bold px-6 pt-6 pb-2">第三课：两代人眼里的婚姻</div>
+        <div class="nav-item active" onclick="switchView('b3-reading', this)"><i class="fas fa-book-open w-5"></i> 对话课文</div>
+        <div class="nav-item" onclick="switchView('b3-vocab', this)"><i class="fas fa-layer-group w-5"></i> 词汇</div>
+        <div class="nav-item" onclick="switchView('b3-ext', this)"><i class="fas fa-plus-square w-5"></i> 表达拓展</div>
+        <div class="nav-item" onclick="switchView('b3-practice', this)"><i class="fas fa-microphone-alt w-5"></i> 练习一</div>
+        <div class="nav-item" onclick="switchView('b3-practice2', this)"><i class="fas fa-exclamation-circle w-5"></i> 练习二</div>
+
+        <div class="mt-auto p-6 text-sm text-gray-400 border-t border-gray-700">
+            <div class="bg-blue-900/50 p-3 rounded-lg flex items-center justify-between">
+                <span>经验值 (XP):</span>
+                <span id="global-score" class="font-bold text-yellow-400 text-lg">0</span>
+            </div>
+        </div>
+    </div>
+    <div class="main-content" id="content-area"></div>
+</div>
+
+<!-- Audio Player for Shadowing Segment -->
+<audio id="segment-audio" src="3 (mp3cut.net).mp3" preload="auto"></audio>
+
+<script>
+    const appData = {
+        score: 0,
+        b3: {
+            title: "两代人眼里的婚姻",
+            paragraphs: [
+                { speaker: "女儿", lines: [
+                    { text: "妈，气死我了，我再也不回那个家了，我要搬回来跟你们住！", audio: [0.0, 3.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "你这孩子，这是说的什么胡话？", audio: [3.6, 5.5] },
+                    { text: "又和晓刚吵架了吧？", audio: [5.6, 7.5] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "我回家又是做饭又是打扫房间，可他倒好，跷着二郎腿在沙发上看报纸。", audio: [7.6, 12.0] },
+                    { text: "我也累了一天，干吗要我伺候他？", audio: [12.1, 14.5] },
+                    { text: "我说说他，他还不耐烦，这样的日子我过不下去了！", audio: [14.6, 18.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "你爸我不是也伺候了一辈子吗？", audio: [18.6, 21.0] },
+                    { text: "男的有几个爱做家务的？", audio: [21.1, 23.0] },
+                    { text: "大多数人家的日子还不是这样过的？", audio: [23.1, 25.5] },
+                    { text: "你这孩子，都结婚了，还这么任性，说回娘家就回娘家。", audio: [25.6, 30.0] },
+                    { text: "小两口动不动就怄气、冷战可不好。", audio: [30.1, 33.0] },
+                    { text: "一会儿，我给晓刚打个电话，让他过来吃晚饭，吃完饭你们就一起回家。", audio: [33.1, 38.5] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "妈，你怎么胳膊肘往外拐，一点也不向着我！", audio: [38.6, 42.0] },
+                    { text: "我还指望你帮我批评他呢！", audio: [42.1, 44.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "你这个傻孩子，丈母娘要是掺和到你们小两口的矛盾里面，女婿还能不反感？", audio: [44.6, 50.0] },
+                    { text: "那你们只能越吵越厉害，最后吃亏的还不是你？", audio: [50.1, 53.5] },
+                    { text: "你都这么大了，怎么还听不出好赖话呢？", audio: [53.6, 56.5] },
+                    { text: "你这么任性可不行，将来会吃苦头的。", audio: [56.6, 59.5] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "可是结婚是两个人的事，凭什么要我一个人忍让？", audio: [59.6, 63.5] },
+                    { text: "那还不如不结婚呢！", audio: [63.6, 65.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "你以为你现在还是我们家的公主啊，大家都得哄着你？", audio: [65.6, 69.5] },
+                    { text: "都是我们给惯的。", audio: [69.6, 71.0] },
+                    { text: "晓刚也不是不做家务，你不爱洗衣服、洗碗，那还不都是人家在干？", audio: [71.1, 76.5] },
+                    { text: "你还要求什么？", audio: [76.6, 78.0] },
+                    { text: "丈夫又不是专门给你干活的机器，你总得让他歇歇吧？", audio: [78.1, 82.0] },
+                    { text: "你要是在过去当媳妇，早被公公婆婆赶回来了！", audio: [82.1, 85.5] },
+                    { text: "你怎么这么不懂事呢？", audio: [85.6, 87.5] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "可是结婚前他说结婚后什么家务也不让我做，每天照顾我。", audio: [87.6, 92.5] },
+                    { text: "现在怎么都变了？", audio: [92.6, 94.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "谈恋爱时说的话怎么能当真呢？", audio: [94.6, 97.0] },
+                    { text: "过日子就是过日子，和谈情说爱是两回事。", audio: [97.1, 100.5] },
+                    { text: "你这么大的人了连这个也分不清吗？", audio: [100.6, 103.5] },
+                    { text: "白念了那么多年书了。", audio: [103.6, 105.5] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "可我还是觉得委屈！", audio: [105.6, 107.5] },
+                    { text: "他怎么能冲我发脾气呢？", audio: [107.6, 109.5] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "孩子，家不是讲理的地方，是两个人互相理解的地方。", audio: [109.6, 114.0] },
+                    { text: "有什么事多从对方的角度想一想，互相迁就一下就过去了。", audio: [114.1, 118.5] },
+                    { text: "要是总是吵架，家怎么会是你的避风港呢？", audio: [118.6, 122.0] },
+                    { text: "那样，你的婚姻很快就会亮起红灯的。", audio: [122.1, 125.0] },
+                    { text: "妈不能跟你一辈子，你别老像个孩子似的，这样将来妈怎么能放心呢？", audio: [125.1, 131.0] }
+                ] },
+                { speaker: "女儿", lines: [
+                    { text: "好了，你别那么担心了，我只是回来冲你撒撒娇。", audio: [131.1, 134.5] },
+                    { text: "我晾他一会儿，让他反思反思，他也会对我更好的。", audio: [134.6, 138.5] },
+                    { text: "不信你等着瞧，过一会儿他会打电话的。", audio: [138.6, 142.0] }
+                ] },
+                { speaker: "妈妈", lines: [
+                    { text: "(自言自语) 现在这孩子，什么怪念头都有，真是搞不懂！", audio: [142.1, 147.0] },
+                    { text: "唉，老喽！老喽！", audio: [147.1, 150.0] }
+                ] }
+            ],
+            vocab: [
+                { word: "跷着二郎腿", pinyin: "qiāozhe èrlángtuǐ", meaning: "坐着时把一条腿放在另一条腿上", translation: "(Ngồi vắt chéo chân)", ex: "你去面试时千万别跷着二郎腿，这样给主考官的印象不太好。" },
+                { word: "任性", pinyin: "rènxìng", meaning: "放任自己的性子，不加控制、约束", translation: "(Ngang bướng, tùy hứng, buông thả)", ex: "你别的方面都挺好的，就是有点任性。以后要学会听从别人的劝告。" },
+                { word: "怄气", pinyin: "òuqì", meaning: "闹别扭以后生闷气，不理对方", translation: "(Hờn dỗi, bực bội trong lòng)", ex: "别总是怄气，有什么话说出来。" },
+                { word: "冷战", pinyin: "lěngzhàn", meaning: "比喻夫妻或恋人间有意见但不吵架，长时间的互不理睬", translation: "(Chiến tranh lạnh)", ex: "你们怎么又开始冷战了？快点和好吧。" },
+                { word: "胳膊肘往外拐", pinyin: "gēbozhǒu wǎng wài guǎi", meaning: "表示不向着自己人而向着外人", translation: "(Cùi chỏ bẻ ra ngoài / Bênh vực người ngoài)", ex: "你是不是我们公司的律师？怎么在这个案子上你总是胳膊肘往外拐呢？" },
+                { word: "掺和", pinyin: "chānhuo", meaning: "指不应该参加的非要参加进去，让人觉得麻烦或者搅乱别人的事", translation: "(Xen vào, can thiệp vào chuyện người khác)", ex: "大人的事孩子别瞎掺和。" },
+                { word: "避风港", pinyin: "bìfēnggǎng", meaning: "原指船躲避风浪的港口，比喻躲开激烈的矛盾冲突的地方", translation: "(Bến đỗ bình yên, nơi trú ẩn)", ex: "家是一个人最大的避风港。" },
+                { word: "亮起红灯", pinyin: "liàngqǐ hóngdēng", meaning: "表示不允许通过或比喻有危险，应该小心注意", translation: "(Bật đèn đỏ, báo động đỏ, có nguy cơ)", ex: "他们公司的安全方面今年亮起了红灯。" },
+                { word: "晾", pinyin: "liàng", meaning: "比喻把人撇在一边不理，故意冷落", translation: "(Bỏ mặc, ngó lơ, cho leo cây)", ex: "他们有说有笑的，但没人跟我说话，把我一个人晾起来了。" },
+                { word: "你这是说的什么胡话？", pinyin: "Nǐ zhè shì shuō de shénme húhuà?", meaning: "责备和自己关系很亲近的人说的话不该说", translation: "(Con đang nói xằng bậy gì thế?)", ex: "什么病啊死的，你这是说的什么胡话，以后不许这么说了。" },
+                { word: "你都这么大了，怎么还……", pinyin: "Nǐ dōu zhème dà le, zěnme hái...", meaning: "责备对方年龄不小了可还做和年龄不相符的事情", translation: "(Con đã lớn thế này rồi, sao còn...)", ex: "都这么大了，还这么任性！" },
+                { word: "你怎么这么不……呢？", pinyin: "Nǐ zěnme zhème bù... ne?", meaning: "责备批评对方的行为或者性格", translation: "(Sao con lại không... thế nhỉ?)", ex: "你怎么这么不懂事呢？" },
+                { word: "白念了那么多年书了", pinyin: "bái niànle nàme duō nián shū le", meaning: "责备对方念书也没明白该明白的道理", translation: "(Uổng công ăn học bao nhiêu năm)", ex: "你怎么不知道应该孝敬老人呢？真是白念了那么多年书了。" },
+                { word: "就你会出馊主意！", pinyin: "Jiù nǐ huì chū sōuzhǔyi!", meaning: "责备对方总是出不好的主意导致事情的结果不好", translation: "(Chỉ có cậu là hay ra chủ ý tồi!)", ex: "就你会出馊主意！这样不但骗不过老师，还得挨一顿训！" },
+                { word: "放着好好的……不做，非去干那些……", pinyin: "Fàngzhe hǎohǎo de... bù zuò, fēi qù gàn nàxiē...", meaning: "责备对方非要做一些不该做的事", translation: "(Đang yên đang lành... không làm, cứ đâm đầu vào...)", ex: "放着好好的学不上，非去做什么生意，你到底怎么想的？" },
+                { word: "就你事儿多！", pinyin: "Jiù nǐ shìr duō!", meaning: "责备对方总爱挑毛病", translation: "(Chỉ có cậu là lắm chuyện!)", ex: "人家一个班的学生都没意见，就你事儿多，非得给人家挑点毛病出来！" },
+                { word: "你总是放马后炮！", pinyin: "Nǐ zǒngshì fàng mǎhòupào!", meaning: "责备对方事前不说，事后才说", translation: "(Cậu toàn vuốt đuôi / nói vuốt đuôi thôi!)", ex: "你总是放马后炮，现在说有什么用呢？" }
+            ],
+            exercises: [
+                { q: "我快忙死了，可他不但不帮我的忙，反而坐在沙发上舒服地看电视。", hint: "我……，可他倒好，跷着二郎腿……", deepHint: "例1：我快忙死了，可他倒好，跷着二郎腿在沙发上看电视。<br>例2：我累得要命，可他倒好，跷着二郎腿看电视。", a: "可他倒好跷着二郎腿" },
+                { q: "你是我的妹妹，为什么我和别人吵架时你不向着我呢？", hint: "胳膊肘往外拐", deepHint: "例1：你是我的妹妹，怎么胳膊肘往外拐呢？<br>例2：你怎么胳膊肘往外拐，一点都不帮我？", a: "胳膊肘往外拐" },
+                { q: "你这么不听话肯定是父母太宠爱你。", hint: "都是……给惯的", deepHint: "例1：你这么不听话，都是父母给惯的。<br>例2：你这么任性，全都是家里人给惯的。", a: "都是父母给惯的|都是家里人给惯的|都是给惯的" },
+                { q: "我也是人，也有累的时候，我不可能一直学习。", hint: "不是……的机器", deepHint: "例1：我又不是专门学习的机器，也需要休息。<br>例2：我也是人，又不是学习的机器。", a: "又不是专门学习的机器|又不是学习的机器" },
+                { q: "生活是实实在在的，和理想不一样。", hint: "A就是A，和……是两回事", deepHint: "例1：生活就是生活，和理想是两回事。<br>例2：过日子就是过日子，和理想是两回事。", a: "生活就是生活和理想是两回事|过日子就是过日子和理想是两回事" },
+                { q: "由于管理不好，他的公司现在已经很危险了。", hint: "亮红灯", deepHint: "例1：由于管理不好，他的公司已经亮起了红灯。<br>例2：他的公司现在已经亮红灯了。", a: "亮起了红灯|亮红灯了" }
+            ],
+            exercises2: [
+                { q: "用“责备”的表达法说说下列情景：<br>你知道这么做不好刚才为什么不说？现在说有什么用？", hint: "放马后炮", deepHint: "例1：你总是放马后炮，现在说有什么用呢？<br>例2：你怎么总是放马后炮！刚才怎么不说？", a: "总是放马后炮|怎么总是放马后炮" },
+                { q: "用“责备”的表达法说说下列情景：<br>你好好吃饭吧，人家都没说不好吃，怎么就你一个人非说不好吃？", hint: "就你事儿多 / 就你毛病多", deepHint: "例1：别人都没意见，就你事儿多！<br>例2：就你毛病多，非得挑毛病！", a: "就你事儿多|就你毛病多" },
+                { q: "用“责备”的表达法说说下列情景：<br>小孩子不要乱说话，你怎么知道人家在谈恋爱，可能只是一起吃顿饭而已。", hint: "掺和", deepHint: "例1：大人的事小孩子别瞎掺和。<br>例2：你个小孩子瞎掺和什么？", a: "别瞎掺和|瞎掺和什么" },
+                { q: "用“责备”的表达法说说下列情景：<br>你看你，出国有什么好处？原来的工作多好啊！", hint: "放着好好的……不做，非去……", deepHint: "例1：放着好好的工作不做，非去出国，你到底怎么想的？<br>例2：放着好好的日子不过，非要去国外受罪。", a: "放着好好的工作不做非去出国|放着好好的工作不干非去出国" },
+                { q: "用“责备”的表达法说说下列情景：<br>你已经是大人了，怎么能像原来一样想干什么就干什么呢？", hint: "你都这么大了，怎么还……", deepHint: "例1：你都这么大了，怎么还这么任性！<br>例2：你都这么大的人了，怎么还像个孩子似的！", a: "你都这么大了怎么还这么任性|你都这么大的人了怎么还像个孩子似的" },
+                { q: "用“责备”的表达法说说下列情景：<br>你呀，好事不干，净出些没用的专门坏事的主意。", hint: "出馊主意", deepHint: "例1：就你会出馊主意！<br>例2：你一天到晚净出馊主意！", a: "就你会出馊主意|净出些馊主意|净出馊主意" },
+                { q: "用“责备”的表达法说说下列情景：<br>你连这点道理都不懂，好像没上过学一样。", hint: "白念了那么多年书了", deepHint: "例1：你连这个道理都不懂，真是白念了那么多年书了！<br>例2：这么简单的道理都不明白，白念了那么多年书了。", a: "白念了那么多年书了|真是白念了那么多年书了" },
+                { q: "用“责备”的表达法说说下列情景：<br>她说的有道理，都是为你考虑的，你不应该不理解她的心。", hint: "你怎么这么不……呢？", deepHint: "例1：她都是为你考虑，你怎么这么不懂事呢？<br>例2：你怎么这么不听话呢，她都是为你好。", a: "你怎么这么不懂事呢|你怎么这么不听话呢" }
+            ]
+        }
+    };
+
+    const contentArea = document.getElementById('content-area');
+    let currentUtterance = null; 
+    let chineseVoice = null;
+    let segmentAudioPlayer = null; 
+
+    function initVoice() {
+        if (!window.speechSynthesis) return;
+        let voices = window.speechSynthesis.getVoices();
+        chineseVoice = voices.find(v => v.lang === 'zh-CN' && (v.name.includes('Xiaoxiao') || v.name.includes('Natural') || v.name.includes('Ting-Ting')));
+        if (!chineseVoice) chineseVoice = voices.find(v => v.lang.includes('zh'));
+    }
+    if(window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = initVoice;
+        initVoice();
+    }
+
+    // Advanced Pronunciation Error Checking using pinyin-pro
+    function analyzeError(charTarget, charRecognized) {
+        if (!charRecognized) return "漏读 (Thiếu chữ)";
+        
+        try {
+            // Using pinyinPro global object loaded from CDN
+            let pyT_num = pinyinPro.pinyin(charTarget, { toneType: 'num', type: 'array' })[0] || "";
+            let pyR_num = pinyinPro.pinyin(charRecognized, { toneType: 'num', type: 'array' })[0] || "";
+            
+            let initT = pinyinPro.pinyin(charTarget, { pattern: 'initial', type: 'array' })[0] || "";
+            let initR = pinyinPro.pinyin(charRecognized, { pattern: 'initial', type: 'array' })[0] || "";
+            
+            let finalT = pinyinPro.pinyin(charTarget, { pattern: 'final', type: 'array' })[0] || "";
+            let finalR = pinyinPro.pinyin(charRecognized, { pattern: 'final', type: 'array' })[0] || "";
+
+            let baseT = pyT_num.replace(/\d/, '');
+            let baseR = pyR_num.replace(/\d/, '');
+            
+            if (baseT === baseR && pyT_num !== pyR_num) {
+                return "声调错误 (Sai thanh điệu)";
+            } else if (initT !== initR && finalT === finalR) {
+                return "声母错误 (Sai thanh mẫu)";
+            } else if (initT === initR && finalT !== finalR) {
+                return "韵母错误 (Sai vận mẫu)";
+            } else {
+                return "发音错误 (Sai hoàn toàn)";
+            }
+        } catch (e) {
+            return "发音错误 (Sai hoàn toàn)"; // Fallback if library fails
+        }
+    }
+
+    // Individual Practice Mic Logic
+    let practiceRec = null;
+    let activePracticeIndex = -1;
+
+    function startPracticeMic(index) {
+        if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+            alert("Trình duyệt không hỗ trợ Web Speech API.");
+            return;
+        }
+        
+        // Enforce sequence if desired, or let user jump around. We stick to sequence:
+        if (parseInt(index) !== window.activeQIndex) return;
+        
+        if (practiceRec) {
+            try { practiceRec.stop(); } catch(e) {}
+        }
+        
+        if (activePracticeIndex !== -1 && activePracticeIndex !== parseInt(index)) {
+            resetPracticeMicBtn(activePracticeIndex);
+        }
+        
+        activePracticeIndex = parseInt(index);
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        practiceRec = new SR();
+        practiceRec.lang = 'zh-CN';
+        practiceRec.continuous = false; // Turn off after one sentence
+        practiceRec.interimResults = false;
+        
+        const btn = document.getElementById('btn-pmic-' + index);
+        const resEl = document.getElementById('res-' + index);
+        
+        if(btn) {
+            btn.classList.replace('bg-blue-600', 'bg-red-500');
+            btn.classList.replace('hover:bg-blue-700', 'hover:bg-red-600');
+            btn.classList.add('mic-active-icon');
+            btn.innerHTML = '<i class="fas fa-wave-square mr-2"></i> 正在聆听...';
+        }
+        
+        if(resEl) {
+            resEl.innerHTML = "<span class='text-blue-600 font-bold flex items-center'><i class='fas fa-circle-notch fa-spin mr-3 text-xl'></i> 等待你的回答...</span>";
+            resEl.className = "bg-blue-50 p-4 rounded-xl border border-blue-200 mt-2 shadow-inner min-h-[50px] transition-all";
+        }
+        
+        practiceRec.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            processPracticeTranscript(transcript, activePracticeIndex);
+        };
+        
+        practiceRec.onerror = function(event) {
+            if(resEl) {
+                resEl.innerHTML = `<span class='text-red-600 font-bold'><i class='fas fa-exclamation-circle mr-2'></i>听不清楚，请重试！</span>`;
+                resEl.className = "bg-red-50 p-4 rounded-xl border border-red-200 mt-2 shadow-inner min-h-[50px] transition-all";
+            }
+            resetPracticeMicBtn(activePracticeIndex);
+        };
+        
+        practiceRec.onend = function() {
+            resetPracticeMicBtn(activePracticeIndex);
+        };
+        
+        try { practiceRec.start(); } catch(e) {}
+    }
+
+    function resetPracticeMicBtn(index) {
+        const btn = document.getElementById('btn-pmic-' + index);
+        if(btn) {
+            btn.classList.replace('bg-red-500', 'bg-blue-600');
+            btn.classList.replace('hover:bg-red-600', 'hover:bg-blue-700');
+            btn.classList.remove('mic-active-icon');
+            btn.innerHTML = '<i class="fas fa-microphone mr-2"></i> 点击录音';
+        }
+    }
+
+    let shadowingRec = null;
+    let activeShadowingId = null;
+    let activeShadowingTarget = "";
+
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        shadowingRec = new SR();
+        shadowingRec.lang = 'zh-CN';
+        shadowingRec.continuous = false;
+        shadowingRec.interimResults = false;
+
+        shadowingRec.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            const resEl = document.getElementById(activeShadowingId);
+            
+            if(resEl && activeShadowingTarget) {
+                let cleanTarget = activeShadowingTarget.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+                let cleanTranscript = transcript.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+                
+                let resultHTML = "";
+                let tIdx = 0;
+                let errorDetails = "";
+                
+                for (let i = 0; i < cleanTarget.length; i++) {
+                    let charT = cleanTarget[i];
+                    let found = false;
+                    let matchIdx = -1;
+                    
+                    for (let j = tIdx; j < Math.min(tIdx + 3, cleanTranscript.length); j++) {
+                        if (charT === cleanTranscript[j]) {
+                            found = true;
+                            matchIdx = j;
+                            break;
+                        }
+                    }
+                    
+                    if (found) {
+                        resultHTML += `<span class="text-green-600">${charT}</span>`;
+                        tIdx = matchIdx + 1;
+                    } else {
+                        let charR = cleanTranscript[tIdx] || "";
+                        let errorType = analyzeError(charT, charR);
+                        
+                        resultHTML += `
+                            <span class="relative group cursor-pointer text-red-500 font-bold border-b-2 border-red-500 mx-[1px]">
+                                ${charT}
+                                <span class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 hidden group-hover:block bg-gray-800 text-white text-xs whitespace-nowrap px-2 py-1 rounded z-10 shadow-lg">
+                                    ${errorType}
+                                </span>
+                            </span>
+                        `;
+                        if(charR) tIdx++;
+                    }
+                }
+                
+                let correctCount = (resultHTML.match(/text-green-600/g) || []).length;
+                let accuracy = cleanTarget.length > 0 ? Math.round((correctCount / cleanTarget.length) * 100) : 0;
+                let scoreColor = accuracy >= 80 ? 'text-green-600' : (accuracy >= 50 ? 'text-orange-500' : 'text-red-500');
+
+                resEl.innerHTML = `
+                    <div class="mb-1 text-xs text-gray-500"><i class="fas fa-microphone-alt mr-1"></i>你读作: ${transcript}</div>
+                    <div class="text-lg tracking-wider">${resultHTML}</div>
+                    <div class="text-xs font-bold mt-1 ${scoreColor}">准确率: ${accuracy}% <span class="text-gray-400 font-normal ml-2">(鼠标悬停红字查看错误类型)</span></div>
+                `;
+            }
+            resetShadowingMicBtn(activeShadowingId);
+        };
+
+        shadowingRec.onerror = function(event) {
+            const resEl = document.getElementById(activeShadowingId);
+            if(resEl) resEl.innerHTML = `<span class="text-red-500 text-sm"><i class="fas fa-exclamation-circle mr-1"></i>听不清楚，请重试！</span>`;
+            resetShadowingMicBtn(activeShadowingId);
+        };
+        
+        shadowingRec.onend = function() {
+            resetShadowingMicBtn(activeShadowingId);
+        }
+    }
+
+    function resetShadowingMicBtn(id) {
+        if(!id) return;
+        const btnId = id.replace('s-res-', 'btn-smic-');
+        const btn = document.getElementById(btnId);
+        if(btn) {
+            btn.classList.remove('bg-red-500', 'pulse-anim', 'mic-active-icon');
+            btn.classList.add('bg-green-500');
+            btn.innerHTML = '<i class="fas fa-microphone"></i>';
+        }
+        activeShadowingId = null;
+    }
+
+    function switchView(viewId, element) {
+        if(practiceRec) { try { practiceRec.stop(); } catch(e){} }
+        if(shadowingRec) { try { shadowingRec.stop(); } catch(e){} }
+        
+        const realAudio = document.getElementById('lesson-audio');
+        if(realAudio) {
+            realAudio.pause();
+            realAudio.currentTime = 0;
+        }
+
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        if(element) element.classList.add('active');
+
+        const parts = viewId.split('-');
+        const lesson = parts[0]; 
+        const type = parts[1];   
+        
+        let html = '';
+        if (type === 'reading') html = renderReading(lesson, 'normal');
+        else if (type === 'vocab') html = renderVocabList(lesson, 0, 9, '词汇 (Flashcards)');
+        else if (type === 'ext') html = renderVocabList(lesson, 9, 999, '表达拓展 (Expression Extension)');
+        else if (type === 'practice') html = renderPractice(lesson, 'exercises', '练习一（情景反应）');
+        else if (type === 'practice2') html = renderPractice(lesson, 'exercises2', '练习二（表达拓展）');
+
+        contentArea.innerHTML = html;
+        window.scrollTo(0, 0);
+    }
+
+    function renderReading(lesson, mode) {
+        const data = appData[lesson];
+        
+        let navHtml = `
+            <div class="flex gap-4 border-b border-gray-200 mb-6">
+                <button class="pb-2 ${mode==='normal' ? 'border-b-2 border-blue-600 font-bold text-blue-600' : 'font-bold text-gray-500 hover:text-gray-800'}" onclick="renderReadingTab('${lesson}', 'normal')">📖 朗读全文</button>
+                <button class="pb-2 ${mode==='shadowing' ? 'border-b-2 border-blue-600 font-bold text-blue-600' : 'font-bold text-gray-500 hover:text-gray-800'}" onclick="renderReadingTab('${lesson}', 'shadowing')">🗣️ 跟读练习</button>
+            </div>
+        `;
+
+        if (mode === 'normal') {
+            let paragraphsHtml = '';
+            data.paragraphs.forEach(p => {
+                if(p.speaker) paragraphsHtml += `<div class="speaker">${p.speaker}</div>`;
+                p.lines.forEach(line => {
+                    let text = typeof line === 'string' ? line : line.text;
+                    paragraphsHtml += `<span class="mr-1">${text}</span>`;
+                });
+                paragraphsHtml += `<br><br>`;
+            });
+
+            return `
+                <div class="section-header">
+                    <i class="fas fa-book-open text-blue-500 mr-2"></i> 课文: ${data.title}
+                </div>
+                ${navHtml}
+                <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl mb-6 text-sm text-blue-800 flex flex-col sm:flex-row items-center justify-between shadow-sm gap-4">
+                    <span><i class="fas fa-info-circle mr-2"></i> 课文原音播放。请确保音频文件名为 <b>3 (mp3cut.net).mp3</b> 并放在同一目录下。</span>
+                    <audio id="lesson-audio" src="3 (mp3cut.net).mp3" preload="none"></audio>
+                    <button id="btn-read-full" class="bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 shadow font-bold flex items-center transition whitespace-nowrap" onclick="toggleRealAudioFull()">
+                        <i class="fas fa-play mr-2"></i>播放原音
+                    </button>
+                </div>
+                <div id="reading-text-full" class="bg-white p-8 rounded-2xl shadow-sm mb-6 zh-text border border-gray-100 leading-loose">
+                    ${paragraphsHtml}
+                </div>
+            `;
+        } else {
+            let shadowHtml = '';
+            let blockIndex = 0;
+            data.paragraphs.forEach((p, pIndex) => {
+                if(p.speaker) shadowHtml += `<div class="speaker text-lg mt-6 mb-2 border-l-4 border-blue-500 pl-3">${p.speaker}</div>`;
+                
+                p.lines.forEach((line, lIndex) => {
+                    let text = typeof line === 'string' ? line : line.text;
+                    let safeText = text.replace(/'/g, "\\'");
+                    let sId = `s-res-${blockIndex}`;
+                    let btnId = `btn-smic-${blockIndex}`;
+                    
+                    shadowHtml += `
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3 flex flex-col md:flex-row md:items-center gap-4 transition hover:shadow-md">
+                            <div class="flex-1 zh-text text-gray-800">${text}</div>
+                            <div class="flex items-center gap-3 shrink-0">
+                                <button class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200 flex items-center justify-center transition relative group" onclick="playSentence('${safeText}')">
+                                    <i class="fas fa-volume-up"></i>
+                                    <span class="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">听AI发音</span>
+                                </button>
+                                <button id="${btnId}" class="w-10 h-10 rounded-full bg-green-500 text-white hover:bg-green-600 flex items-center justify-center transition shadow-sm relative group" onclick="startShadowing('${sId}', '${btnId}', '${safeText}')">
+                                    <i class="fas fa-microphone"></i>
+                                    <span class="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">跟读录音</span>
+                                </button>
+                            </div>
+                            <div id="${sId}" class="w-full md:w-1/3 text-sm text-gray-500 md:text-right mt-2 md:mt-0 min-h-[40px] flex flex-col items-end justify-center">
+                                <!-- User Transcript appears here -->
+                            </div>
+                        </div>
+                    `;
+                    blockIndex++;
+                });
+            });
+
+            return `
+                <div class="section-header">
+                    <i class="fas fa-book-open text-blue-500 mr-2"></i> 课文: ${data.title}
+                </div>
+                ${navHtml}
+                <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-6 text-sm text-indigo-800 shadow-sm">
+                    <p><i class="fas fa-headphones-alt mr-2"></i> <strong>跟读与纠音指南：</strong></p>
+                    <ul class="list-disc pl-8 mt-1 space-y-1">
+                        <li>点击喇叭 <i class="fas fa-volume-up text-blue-500 mx-1"></i> 听<b>AI标准辅助发音</b>。</li>
+                        <li>点击麦克风 <i class="fas fa-microphone text-green-500 mx-1"></i> 并跟读。系统将利用 Pinyin Pro 智能分析您的发音。</li>
+                        <li><b>错误分析：</b>系统会用 <strong class="text-red-500 border-b-2 border-red-500">红字底线</strong> 标出错误。<b>将鼠标悬停（Hover）在红字上</b>，即可查看具体是“声调错误”、“声母错误”还是“韵母错误”！</li>
+                    </ul>
+                </div>
+                <div class="max-w-5xl pb-10">
+                    ${shadowHtml}
+                </div>
+            `;
+        }
+    }
+
+    function renderReadingTab(lesson, mode) {
+        if(window.speechSynthesis) window.speechSynthesis.cancel();
+        if(shadowingRec) { try { shadowingRec.stop(); } catch(e){} }
+        document.getElementById('content-area').innerHTML = renderReading(lesson, mode);
+    }
+
+    function toggleRealAudioFull() {
+        const audio = document.getElementById('lesson-audio');
+        const btn = document.getElementById('btn-read-full');
+        
+        if (!audio) return;
+        
+        if (audio.paused) {
+            audio.currentTime = 0;
+            audio.play().catch(e => {
+                alert("无法播放音频！请检查您的音频文件是否已命名为 '3 (mp3cut.net).mp3' 并放在与网页相同的文件夹中。");
+            });
+            btn.innerHTML = '<i class="fas fa-pause mr-2"></i>暂停播放';
+            btn.classList.replace('bg-blue-600', 'bg-red-500');
+            btn.classList.replace('hover:bg-blue-700', 'hover:bg-red-600');
+        } else {
+            audio.pause();
+            btn.innerHTML = '<i class="fas fa-play mr-2"></i>播放原音';
+            btn.classList.replace('bg-red-500', 'bg-blue-600');
+            btn.classList.replace('hover:bg-red-600', 'hover:bg-blue-700');
+        }
+        
+        audio.onended = function() {
+            btn.innerHTML = '<i class="fas fa-play mr-2"></i>播放原音';
+            btn.classList.replace('bg-red-500', 'bg-blue-600');
+            btn.classList.replace('hover:bg-red-600', 'hover:bg-blue-700');
+        };
+    }
+
+    function playSentence(text) {
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        let u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-CN';
+        u.rate = 0.85;
+        if(chineseVoice) u.voice = chineseVoice;
+        window.speechSynthesis.speak(u);
+    }
+
+    function startShadowing(resId, btnId, targetText) {
+        if (!shadowingRec) {
+            alert("Trình duyệt不不支持Web Speech API。");
+            return;
+        }
+
+        if(window.speechSynthesis) window.speechSynthesis.cancel();
+        
+        if(activeShadowingId && activeShadowingId !== resId) {
+            resetShadowingMicBtn(activeShadowingId);
+            try { shadowingRec.stop(); } catch(e){}
+        }
+
+        activeShadowingId = resId;
+        activeShadowingTarget = targetText; 
+        
+        const btn = document.getElementById(btnId);
+        const resEl = document.getElementById(resId);
+        
+        btn.classList.remove('bg-green-500');
+        btn.classList.add('bg-red-500', 'mic-active-icon');
+        btn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+        
+        resEl.innerHTML = `<span class="text-blue-500 text-sm italic">正在聆听...</span>`;
+        
+        try { shadowingRec.start(); } catch(e){}
+    }
+
+    function renderVocabList(lesson, startIdx, endIdx, title) {
+        const data = appData[lesson].vocab.slice(startIdx, endIdx);
+        let cardsHtml = '';
+        data.forEach((v, index) => {
+            cardsHtml += `
+                <div class="flip-card" onclick="this.classList.toggle('flipped')">
+                    <div class="flip-card-inner">
+                        <div class="flip-card-front">
+                            <span class="text-xs text-gray-400 absolute top-4 left-4">卡片 ${index + 1}/${data.length}</span>
+                            <h2 class="text-4xl font-bold text-gray-800 mb-2">${v.word}</h2>
+                            <p class="mt-4 text-blue-500 text-sm"><i class="fas fa-hand-pointer mr-1"></i>点击翻转</p>
+                        </div>
+                        <div class="flip-card-back">
+                            <h2 class="text-2xl font-bold text-blue-600 mb-2">${v.pinyin}</h2>
+                            <div class="text-sm font-semibold text-gray-600 mb-1">${v.meaning}</div>
+                            <div class="text-sm font-medium text-gray-700 w-full mb-3 leading-relaxed border-b border-blue-200 pb-2">
+                                ${v.translation}
+                            </div>
+                            <div class="text-sm text-gray-800 w-full bg-white p-3 rounded-lg border border-blue-100 shadow-sm relative mt-auto">
+                                <div class="text-xs font-bold text-blue-500 mb-1">例句</div>
+                                ${v.ex}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        return `
+            <div class="section-header">
+                <i class="fas fa-layer-group text-blue-500 mr-2"></i> ${title}
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
+                ${cardsHtml}
+            </div>
+        `;
+    }
+
+    function renderPractice(lesson, exerciseKey, title) {
+        const data = appData[lesson][exerciseKey];
+        if (!data) return `<p class="text-gray-500">暂无练习数据。</p>`;
+
+        window.currentPracticeLesson = lesson;
+        window.currentPracticeKey = exerciseKey;
+        window.activeQIndex = 0;
+
+        let quizzesHtml = '';
+        
+        data.forEach((q, index) => {
+            const isFirst = index === 0;
+            const opacityClass = isFirst ? 'opacity-100 ring-2 ring-blue-400 scale-100' : 'opacity-50 scale-[0.98] pointer-events-none';
+            
+            quizzesHtml += `
+                <div id="q-block-${index}" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 transition-all duration-500 ${opacityClass}">
+                    <div class="flex items-start gap-4">
+                        <div id="q-num-${index}" class="w-10 h-10 rounded-full ${isFirst ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'} flex items-center justify-center font-bold shrink-0 mt-1 transition-colors duration-500 shadow-sm">${index + 1}</div>
+                        <div class="flex-1 w-full">
+                            <p class="text-lg text-gray-800 font-medium mb-2 leading-relaxed">${q.q}</p>
+                            
+                            <p class="text-[1.05rem] text-blue-700 font-medium mb-4 flex items-center flex-wrap gap-2">
+                                <i class="fas fa-key mr-1"></i> ${exerciseKey === 'exercises2' ? '提示表达：' : '提示词：'} 
+                                <span class="bg-blue-100 px-3 py-1 rounded-md border border-blue-200 font-bold">${q.hint}</span>
+                            </p>
+                            
+                            <div class="flex flex-wrap gap-3 mb-3">
+                                <button id="btn-pmic-${index}" class="bg-blue-600 text-white border border-blue-700 px-5 py-2.5 rounded-lg hover:bg-blue-700 shadow-sm font-bold flex items-center transition" 
+                                        onclick="startPracticeMic('${index}')">
+                                    <i class="fas fa-microphone mr-2"></i> 点击录音
+                                </button>
+                                <button class="bg-yellow-100 text-yellow-800 border border-yellow-300 px-5 py-2.5 rounded-lg hover:bg-yellow-200 shadow-sm font-bold flex items-center transition" 
+                                        onclick="toggleHint('${index}')">
+                                    <i class="fas fa-lightbulb text-yellow-500 mr-2"></i> 参考答案
+                                </button>
+                                <button class="bg-gray-100 text-gray-600 border border-gray-300 px-5 py-2.5 rounded-lg hover:bg-gray-200 shadow-sm font-bold flex items-center transition" 
+                                        onclick="skipQuestion('${index}')">
+                                    <i class="fas fa-forward mr-2"></i> 跳过
+                                </button>
+                            </div>
+                            
+                            <div id="hint-${index}" class="hidden bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-yellow-900 mb-3 shadow-inner">
+                                <div class="flex items-start"><span class="bg-orange-200 text-orange-800 px-2 py-1 rounded text-xs font-bold mr-3 mt-1 shadow-sm shrink-0">正确句型</span> 
+                                    <div class="text-gray-800 font-medium text-lg leading-relaxed">${q.deepHint}</div>
+                                </div>
+                            </div>
+                            
+                            <div id="res-${index}" class="mt-2 min-h-[50px] transition-all duration-300">
+                                ${isFirst ? '<span class="text-gray-400 italic">请点击上方“点击录音”按钮并授权麦克风以开始回答。</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        return `
+            <div class="section-header">
+                <i class="fas fa-bolt text-yellow-500 mr-2"></i> ${title}
+            </div>
+            
+            <div class="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
+                <div>
+                    <h3 class="font-bold text-blue-800 text-lg mb-1"><i class="fas fa-headset mr-2 text-blue-500"></i>练习规则</h3>
+                    <p class="text-sm text-blue-700">1. 阅读问题并使用 <b>${exerciseKey === 'exercises2' ? '提示表达' : '提示词'}</b> 造一个完整的句子。<br>2. 每次回答时，需<b>点击每道题的“录音”按钮</b>进行语音识别。回答正确系统会自动解锁下一题。</p>
+                </div>
+            </div>
+
+            <div class="max-w-3xl pb-10">
+                ${quizzesHtml}
+            </div>
+        `;
+    }
+
+    function processPracticeTranscript(transcript, index) {
+        const exercises = appData[window.currentPracticeLesson][window.currentPracticeKey];
+        if (index >= exercises.length) return;
+        
+        const currentQ = exercises[index];
+        const resEl = document.getElementById('res-' + index);
+        
+        let cleanText = transcript.replace(/[。，？！、\s]/g, '').trim();
+        
+        let possibleTargets = currentQ.a.split('|').map(t => t.replace(/[\s]/g, ''));
+        let matchedTargetLength = 0;
+        let isMatch = false;
+        
+        for (let target of possibleTargets) {
+            if (cleanText.includes(target)) {
+                isMatch = true;
+                matchedTargetLength = target.length;
+                break;
+            }
+        }
+        
+        if (cleanText.length > 0 && isMatch) {
+            
+            let isSemanticWrong = false;
+            let semanticErrorMsg = "";
+            if (currentQ.mustNotInclude) {
+                for (let forbidden of currentQ.mustNotInclude) {
+                    if (cleanText.includes(forbidden)) {
+                        isSemanticWrong = true;
+                        semanticErrorMsg = currentQ.semanticErrorMsg || "您的句子逻辑不符合语境要求！";
+                        break;
+                    }
+                }
+            }
+
+            if (isSemanticWrong) {
+                 resEl.innerHTML = `
+                    <span class='text-orange-600 font-bold text-lg'><i class='fas fa-exclamation-triangle mr-2'></i>你刚说: "${transcript}"</span>
+                    <br><span class="text-orange-800 text-sm mt-1 block font-medium">💡 差不多了！但是：<b>${semanticErrorMsg}</b> 请再试一次！</span>
+                `;
+                resEl.className = "bg-orange-50 p-4 rounded-xl border border-orange-300 mt-2 shadow-inner min-h-[50px] transition-all";
+                return; 
+            }
+
+            let isFullSentence = true;
+            if (matchedTargetLength < 6 && cleanText.length < matchedTargetLength + 2) {
+                isFullSentence = false;
+            }
+            
+            if (isFullSentence) {
+                resEl.innerHTML = `<span class='text-green-700 font-bold text-lg'><i class='fas fa-check-circle mr-2'></i>正确: "${transcript}" (+20 XP)</span>`;
+                resEl.className = "bg-green-100 p-4 rounded-xl border border-green-300 mt-2 shadow-inner min-h-[50px] transition-all";
+                
+                appData.score += 20;
+                document.getElementById('global-score').innerText = appData.score;
+                
+                setTimeout(() => moveToNextQuestion(), 1500);
+            } else {
+                resEl.innerHTML = `
+                    <span class='text-orange-600 font-bold text-lg'><i class='fas fa-exclamation-triangle mr-2'></i>你刚说: "${transcript}"</span>
+                    <br><span class="text-orange-800 text-sm mt-1 block font-medium">💡 提示词/表达正确！但请加上主语或谓语，组成<b>一个完整的句子</b>！</span>
+                `;
+                resEl.className = "bg-orange-50 p-4 rounded-xl border border-orange-300 mt-2 shadow-inner min-h-[50px] transition-all";
+            }
+            
+        } else if (cleanText.length > 0) {
+            resEl.innerHTML = `<span class='text-red-600 font-bold'><i class='fas fa-times-circle mr-2'></i>你刚说: "${transcript}"。缺少提示词或不正确！</span>`;
+            resEl.className = "bg-red-50 p-4 rounded-xl border border-red-200 mt-2 shadow-inner min-h-[50px] transition-all";
+        }
+    }
+
+    function toggleHint(index) {
+        const el = document.getElementById('hint-' + index);
+        if (el.classList.contains('hidden')) {
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
+    }
+
+    function skipQuestion(index) {
+        if (index != window.activeQIndex) return; 
+        
+        const resEl = document.getElementById('res-' + window.activeQIndex);
+        resEl.innerHTML = `<span class='text-gray-700 font-medium'><i class='fas fa-forward mr-2 text-blue-500'></i>已跳过。请参考提示中的例句。</span>`;
+        resEl.className = "bg-gray-100 p-4 rounded-xl border border-gray-300 shadow-inner mt-2 min-h-[50px]";
+        
+        setTimeout(moveToNextQuestion, 1500);
+    }
+
+    function moveToNextQuestion() {
+        const currIdx = window.activeQIndex;
+        const currBlock = document.getElementById('q-block-' + currIdx);
+        const currNum = document.getElementById('q-num-' + currIdx);
+        
+        if (currBlock) {
+            currBlock.classList.remove('opacity-100', 'ring-2', 'ring-blue-400', 'scale-100');
+            currBlock.classList.add('opacity-50', 'scale-[0.98]', 'pointer-events-none');
+            
+            currNum.classList.replace('bg-blue-500', 'bg-green-500');
+            currNum.classList.replace('text-white', 'text-white');
+            currNum.innerHTML = '<i class="fas fa-check"></i>';
+        }
+        
+        window.activeQIndex++;
+        
+        const exercises = appData[window.currentPracticeLesson][window.currentPracticeKey];
+        if (window.activeQIndex < exercises.length) {
+            const nextIdx = window.activeQIndex;
+            const nextBlock = document.getElementById('q-block-' + nextIdx);
+            const nextNum = document.getElementById('q-num-' + nextIdx);
+            const nextResEl = document.getElementById('res-' + nextIdx);
+            
+            if (nextBlock) {
+                nextBlock.classList.remove('opacity-50', 'scale-[0.98]', 'pointer-events-none');
+                nextBlock.classList.add('opacity-100', 'ring-2', 'ring-blue-400', 'scale-100');
+                
+                nextNum.classList.replace('bg-gray-200', 'bg-blue-500');
+                nextNum.classList.replace('text-gray-500', 'text-white');
+                
+                setTimeout(() => {
+                    nextBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+                
+                nextResEl.innerHTML = "<span class='text-blue-600 font-bold flex items-center'>请点击“录音”按钮开始回答。</span>";
+                nextResEl.className = "bg-blue-50 p-4 rounded-xl border border-blue-200 mt-2 shadow-inner min-h-[50px] transition-all";
+            }
+        } else {
+            setTimeout(() => {
+                alert("太棒了！你已完成所有练习！");
+            }, 500);
+        }
+    }
+
+    window.onload = () => {
+        switchView('b3-reading', document.querySelector('.nav-item'));
+    };
+</script>
+</body>
+</html>
